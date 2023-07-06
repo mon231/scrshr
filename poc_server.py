@@ -1,3 +1,4 @@
+import io
 import gzip # TODO: gzip the http data (?)
 import PIL.Image as Image
 from pywinauto import Desktop
@@ -9,12 +10,37 @@ class ScrShrServer:
         self.__app = Flask(server_name)
         self.__shared_window = ScrShrServer.select_desktop_window()
 
-        @self.__app.route('/')
+        @self.__app.route('/current_screen_image')
         def mymethod():
-            return Response(
-                ScrShrServer.captures_generator(self.__shared_window),
-                mimetype='multipart/x-mixed-replace; boundary=frame'
-            )
+            winimg = self.__shared_window.capture_as_image()
+            jpg_bytes_stream = io.BytesIO()
+
+            winimg.save(jpg_bytes_stream, format='JPEG')
+            jpg_bytes_stream.seek(0)
+
+            return Response(jpg_bytes_stream, mimetype='image/jpeg')
+
+        @self.__app.route('/')
+        def x():
+            return \
+'''
+<!DOCTYPE html>
+<html>
+    <body>
+        <img id="window_image" src="myimg.jpg" />
+        <script>
+        const img = document.getElementById('window_image');
+
+        function updateImage() {
+            const timestamp = new Date().getTime();
+            img.src = `current_screen_image?timestamp=${timestamp}`;
+        }
+
+        setInterval(updateImage, 1000);
+        </script>
+    </body>
+</html>
+'''
 
         self.__app.run()
 
@@ -22,14 +48,7 @@ class ScrShrServer:
     def captures_generator(shared_window):
         while True:
             window_image: Image = shared_window.capture_as_image()
-            img_bytes = window_image.tobytes()
-
-            yield (
-                b'--frame\r\n'
-                b'Content-Type: image/jpeg\r\n\r\n' +
-                img_bytes +
-                b'\r\n'
-            )
+            yield window_image.tobytes()
 
     @staticmethod
     def select_desktop_window():
