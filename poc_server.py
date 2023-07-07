@@ -1,6 +1,5 @@
 import gzip
 from io import BytesIO
-import PIL.Image as Image
 from pywinauto import Desktop
 from flask import Flask, Response, request
 
@@ -81,7 +80,7 @@ class ScrShrServer:
     @staticmethod
     def captures_generator(shared_window):
         while True:
-            window_image: Image = shared_window.capture_as_image()
+            window_image = shared_window.capture_as_image()
             yield window_image.tobytes()
 
     @staticmethod
