@@ -1,48 +1,82 @@
-import io
-import gzip # TODO: gzip the http data (?)
+import gzip
+from io import BytesIO
 import PIL.Image as Image
 from pywinauto import Desktop
-from flask import Flask, Response
+from flask import Flask, Response, request
 
 
 class ScrShrServer:
-    def __init__(self, server_name: str = __name__):
-        self.__app = Flask(server_name)
+    def __init__(self):
+        self.__app = Flask(__name__)
         self.__shared_window = ScrShrServer.select_desktop_window()
 
-        @self.__app.route('/current_screen_image')
-        def mymethod():
+        self.__route_screen_image()
+        self.__route_client_page()
+        self.__compress_res()
+
+    def run(self):
+        self.__app.run(host='0.0.0.0')
+
+    def __compress_res(self):
+        @self.__app.after_request
+        def compress_response(response):
+            if 'gzip' in request.headers.get('Accept-Encoding', ''):
+                compressed_data = gzip.compress(response.data)
+                response.set_data(compressed_data)
+
+                response.headers['Content-Encoding'] = 'gzip'
+                response.headers['Content-Length'] = len(compressed_data)
+
+            return response
+
+    def __route_screen_image(self):
+        @self.__app.route(f'/current_screen_image')
+        def serve_window_image():
             winimg = self.__shared_window.capture_as_image()
-            jpg_bytes_stream = io.BytesIO()
+            jpg_bytes_stream = BytesIO()
 
             winimg.save(jpg_bytes_stream, format='JPEG')
             jpg_bytes_stream.seek(0)
 
             return Response(jpg_bytes_stream, mimetype='image/jpeg')
 
-        @self.__app.route('/')
-        def x():
+    def __route_client_page(self):
+        @self.__app.route(f'/')
+        def serve_index_page():
             return \
 '''
 <!DOCTYPE html>
 <html>
     <body>
-        <img id="window_image" src="myimg.jpg" />
+        <img id="window_image" /> <br />
+
+        <label for="update_screen_interval">Choose update-rate (20 to 0.2 fps): </label>
+        <input type="range" id="update_screen_interval" min="50" max="5000" oninput="resetUpdateInterval(this.value);" />
+
+        <br /> <text id="current_interval_rate"></text>
+
         <script>
-        const img = document.getElementById('window_image');
+        var update_screen_image_timer = null;
 
         function updateImage() {
             const timestamp = new Date().getTime();
-            img.src = `current_screen_image?timestamp=${timestamp}`;
+            window_image.src = `current_screen_image?timestamp=${timestamp}`;
         }
 
-        setInterval(updateImage, 1000);
+        function resetUpdateInterval(new_interval_value)
+        {
+            clearInterval(update_screen_image_timer);
+            update_screen_interval.value = new_interval_value;
+
+            update_screen_image_timer = setInterval(updateImage, new_interval_value);
+            current_interval_rate.innerText = (1000 / new_interval_value).toFixed(3) + " fps";
+        }
+
+        resetUpdateInterval(200);
         </script>
     </body>
 </html>
 '''
-
-        self.__app.run()
 
     @staticmethod
     def captures_generator(shared_window):
@@ -78,7 +112,8 @@ class ScrShrServer:
 
 
 def main():
-    ScrShrServer('mysrvr')
+    server = ScrShrServer()
+    server.run()
 
 
 if __name__ == '__main__':
